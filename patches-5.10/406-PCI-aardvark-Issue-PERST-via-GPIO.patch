@@ -1,0 +1,57 @@
+From 5169a9851daaa2782a7bd2bb83d5b1bd224b2879 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Pali=20Roh=C3=A1r?= <pali@kernel.org>
+Date: Thu, 30 Apr 2020 10:06:18 +0200
+Subject: [PATCH] PCI: aardvark: Issue PERST via GPIO
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add support for issuing PERST via GPIO specified in 'reset-gpios'
+property (as described in PCI device tree bindings).
+
+Some buggy cards (e.g. Compex WLE900VX or WLE1216) are not detected
+after reboot when PERST is not issued during driver initialization.
+
+If bootloader already enabled link training then issuing PERST has no
+effect for some buggy cards (e.g. Compex WLE900VX) and these cards are
+not detected. We therefore clear the LINK_TRAINING_EN register before.
+
+It was observed that Compex WLE900VX card needs to be in PERST reset
+for at least 10ms if bootloader enabled link training.
+
+Tested on Turris MOX.
+
+Link: https://lore.kernel.org/r/20200430080625.26070-6-pali@kernel.org
+Tested-by: Tomasz Maciej Nowak <tmn505@gmail.com>
+Signed-off-by: Pali Rohár <pali@kernel.org>
+Signed-off-by: Lorenzo Pieralisi <lorenzo.pieralisi@arm.com>
+Acked-by: Thomas Petazzoni <thomas.petazzoni@bootlin.com>
+---
+ drivers/pci/controller/pci-aardvark.c | 43 ++++++++++++++++++++++++++-
+ 1 file changed, 42 insertions(+), 1 deletion(-)
+
+--- a/drivers/pci/controller/pci-aardvark.c
++++ b/drivers/pci/controller/pci-aardvark.c
+@@ -1094,6 +1119,22 @@ static int advk_pcie_probe(struct platfo
+ 		return ret;
+ 	}
+ 
++	pcie->reset_gpio = devm_gpiod_get_from_of_node(dev, dev->of_node,
++						       "reset-gpios", 0,
++						       GPIOD_OUT_LOW,
++						       "pcie1-reset");
++	ret = PTR_ERR_OR_ZERO(pcie->reset_gpio);
++	if (ret) {
++		if (ret == -ENOENT) {
++			pcie->reset_gpio = NULL;
++		} else {
++			if (ret != -EPROBE_DEFER)
++				dev_err(dev, "Failed to get reset-gpio: %i\n",
++					ret);
++			return ret;
++		}
++	}
++
+ 	ret = of_pci_get_max_link_speed(dev->of_node);
+ 	if (ret <= 0 || ret > 3)
+ 		pcie->link_gen = 3;
